@@ -25,8 +25,6 @@
 #include <iostream>
 #include <cstdlib>
 #include <cstring>
-#include <string>
-#include <vector>
 #include "Mixer.h"
 #include "Xpm.h"
 
@@ -36,18 +34,11 @@ Xpm::Xpm(Display* display, Window root, const char* const* data)
    : mDisplay(display), mImage(None), mMask(None)
 {
    int error;
-   vector<string> mutableRows;
-   vector<char*> mutableData;
 
-   for (int i = 0; data[i]; i++)
-      mutableRows.emplace_back(data[i]);
-   mutableData.reserve(mutableRows.size() + 1);
-   for (string& row : mutableRows)
-      mutableData.push_back(row.data());
-   mutableData.push_back(NULL);
-
+   // XPM data arrays are not NULL-terminated; libXpm only reads them, so the
+   // const_cast is safe and avoids guessing the array length here.
    mAttributes.valuemask = 0;
-   error = XpmCreatePixmapFromData(mDisplay, root, mutableData.data(),
+   error = XpmCreatePixmapFromData(mDisplay, root, const_cast<char**>(data),
                                    &mImage, &mMask, &mAttributes);
 
    switch (error) {

@@ -27,6 +27,7 @@
 #include <cstring>
 #include <csignal>
 #include <string>
+#include <vector>
 #include <unistd.h>
 #include "Xpm.h"
 #include "Mixer.h"
@@ -43,7 +44,8 @@
 using namespace std;
 
 static const int ButtonX[] = {6, 24, 42};
-static const char* MixerSources[] = { "Master", "PCM", "CD" };
+static std::string MixerSources[] = { "Master", "PCM", "CD" };
+static bool MixerSourceSet[] = { false, false, false };
 static volatile sig_atomic_t shutdownRequested = 0;
 
 static void requestShutdown(int)
@@ -88,6 +90,7 @@ Mixer::Mixer(int argc, char** argv)
          else if (!strcmp(argv[i], "-1") || !strcmp(argv[i], "-2") || !strcmp(argv[i], "-3")) {
             checkArgument(argv, argc, i);
 	    MixerSources[argv[i][1] - '1'] = argv[i + 1];
+	    MixerSourceSet[argv[i][1] - '1'] = true;
 	    i++;
          }
 
@@ -204,10 +207,30 @@ Mixer::Mixer(int argc, char** argv)
 
    // open mixer sources
    for (int i = 0; i < 3; i++) {
-     aMixer->attachItem(i, MixerSources[i]);
-     if (!aMixer->itemOK(i))
+     aMixer->attachItem(i, MixerSources[i].c_str());
+     if (!aMixer->itemOK(i) && MixerSourceSet[i])
        cerr << APPNAME << ": could not select mixer source '" << MixerSources[i] << "'" << endl;
    }
+
+   // Replace missing default sources (e.g. no PCM/CD on PipeWire or
+   // PulseAudio) with other available controls; unused controls are hidden
+   const vector<string> available = aMixer->volumeItemNames();
+   for (int i = 0; i < 3; i++) {
+     if (aMixer->itemOK(i) || MixerSourceSet[i])
+       continue;
+     for (const string& name : available) {
+       bool used = false;
+       for (int j = 0; j < 3; j++)
+         used = used || (aMixer->itemOK(j) && MixerSources[j] == name);
+       if (!used) {
+         MixerSources[i] = name;
+         aMixer->attachItem(i, name.c_str());
+         break;
+       }
+     }
+   }
+   if (!aMixer->itemOK(0) && !aMixer->itemOK(1) && !aMixer->itemOK(2))
+     cerr << APPNAME << ": no usable mixer controls found on '" << card << "'" << endl;
 
    // Open display
    if ((mDisplay = XOpenDisplay(displayName)) == NULL) {
@@ -278,9 +301,10 @@ Mixer::Mixer(int argc, char** argv)
    XSelectInput(mDisplay, mButton[2], ButtonPressMask | ButtonReleaseMask | PointerMotionMask);
    XSelectInput(mDisplay, mIconWin, ButtonPressMask);
 
-   XMapWindow(mDisplay, mButton[0]);
-   XMapWindow(mDisplay, mButton[1]);
-   XMapWindow(mDisplay, mButton[2]);
+   for (int i = 0; i < 3; i++) {
+      if (aMixer->itemOK(i))
+         XMapWindow(mDisplay, mButton[i]);
+   }
 
    XMapWindow(mDisplay, mIconWin);
    XMapWindow(mDisplay, mAppWin);
@@ -321,6 +345,8 @@ void Mixer::showHelp()
         << " -1 <source>     set sound source for control 1 (default is Master)" << endl
         << " -2 <source>     set sound source for control 2 (default is PCM)" << endl
         << " -3 <source>     set sound source for control 3 (default is CD)" << endl
+        << "                 missing default sources are replaced by other" << endl
+        << "                 available controls, or hidden if none remain" << endl
         << " -w 1|2|3        bind a control button to the mouse wheel (default is 1)" << endl
         << " -l <text>       set label text" << endl
         << " -S              save volume settings on exit" << endl
@@ -422,6 +448,7 @@ void Mixer::getVolume()
 {
    static int lastVolume[3] = {-1, -1, -1};
    static int lastVolumeMute[3] = {-1, -1, -1};
+   static int lastAvailable[3] = {-1, -1, -1};
 
    if (mError) {
       return;
@@ -429,6 +456,15 @@ void Mixer::getVolume()
 
    // Read from device
    for (int i=0; i<3; i++) {
+      const int available = aMixer->itemOK(i);
+      if (lastAvailable[i] != available) {
+         if (available)
+            XMapWindow(mDisplay, mButton[i]);
+         else
+            XUnmapWindow(mDisplay, mButton[i]);
+         lastAvailable[i] = available;
+      }
+
       mVolume[i] = aMixer->itemGetVolume(i);
       mVolumeMute[i] = aMixer->itemIsMuted(i);
       if (mVolume[i] < 0) {
@@ -520,6 +556,9 @@ void Mixer::setButtonPosition(int button, int position) {
 void Mixer::setButtonPositionRelative(int button, int relativePosition)
 {
    int y;
+
+   if (!aMixer->itemOK(button))
+      return;
 
    // Calc new button position
    y = mVolumePos[button] + relativePosition;

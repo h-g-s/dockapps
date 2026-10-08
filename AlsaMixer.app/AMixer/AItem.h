@@ -22,19 +22,20 @@ class AItem {
     AMixer *mixer;			// parent mixer
     std::vector<AChannel *> pbChannels;	// item channels
 
-    long minPVolume, maxPVolume;	// min/max playback volume
-    bool hPVolume;			// has Playback volume
-    bool hPSwitch;			// has Playback switch
+    long minVolume, maxVolume;		// min/max volume
+    bool capture;			// controls capture instead of playback
 
   public:
     snd_mixer_elem_t *aElem;		// mixer item element
     const char *name;			// item name
 
     AItem(AMixer *m, snd_mixer_elem_t *e);	// ctor
+    static bool hasVolume(snd_mixer_elem_t *e);
     ~AItem();					// dtor
 
     void setVolumePerc(unsigned int percent);
     unsigned int getVolumePerc();
+    bool isCapture() const { return capture; }
     bool isMuted();
     void mute();
     void unmute();

@@ -11,6 +11,7 @@
 
 #include <alsa/asoundlib.h>
 #include <string>
+#include <vector>
 
 #define MIXER_ITEMS	3
 
@@ -34,6 +35,7 @@ class AMixer {
     bool opened();
     int handleEvents();
     AItem *attachItem(unsigned int itemNumber, const char *itemName);
+    std::vector<std::string> volumeItemNames();
     bool itemOK(unsigned int itemNumber);
     int itemGetVolume(unsigned int itemNumber);
     void itemSetVolume(unsigned int itemNumber, unsigned int volume);

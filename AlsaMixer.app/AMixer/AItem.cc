@@ -13,27 +13,36 @@
 #define ROUND_POS(x)	(long ((long (x) + 0.5 > (x)) ? (x) : (x) + 1))
 
 
-// load only playback channels, don't care about common items
+// prefer playback controls; use capture controls such as "Capture" otherwise
 AItem::AItem(AMixer *m, snd_mixer_elem_t *e) {
   mixer = m;
   aElem = e;
 
   name = snd_mixer_selem_get_name(aElem);
 
-  hPVolume = snd_mixer_selem_has_playback_volume(aElem);
-  hPSwitch = snd_mixer_selem_has_playback_switch(aElem);
+  capture = !snd_mixer_selem_has_playback_volume(aElem) &&
+	    snd_mixer_selem_has_capture_volume(aElem);
 
-  if (hPVolume)
-    snd_mixer_selem_get_playback_volume_range(aElem, &minPVolume, &maxPVolume);
+  if (capture)
+    snd_mixer_selem_get_capture_volume_range(aElem, &minVolume, &maxVolume);
+  else if (snd_mixer_selem_has_playback_volume(aElem))
+    snd_mixer_selem_get_playback_volume_range(aElem, &minVolume, &maxVolume);
   else
-    minPVolume = maxPVolume = 0;
+    minVolume = maxVolume = 0;
 
   for (int channel = 0; channel <= (int) SND_MIXER_SCHN_LAST; channel++) {
-    if (snd_mixer_selem_has_playback_channel(aElem, (SNDCHID_T) channel)) {
-      AChannel *ch = new AChannel(this, (SNDCHID_T) channel);
-      pbChannels.push_back(ch);
-    }
+    bool present = capture ?
+      snd_mixer_selem_has_capture_channel(aElem, (SNDCHID_T) channel) :
+      snd_mixer_selem_has_playback_channel(aElem, (SNDCHID_T) channel);
+    if (present)
+      pbChannels.push_back(new AChannel(this, (SNDCHID_T) channel));
   }
+}
+
+
+bool AItem::hasVolume(snd_mixer_elem_t *e) {
+  return snd_mixer_selem_has_playback_volume(e) ||
+	 snd_mixer_selem_has_capture_volume(e);
 }
 
 
@@ -48,13 +57,17 @@ void AItem::setVolumePerc(unsigned int percent) {
   if (percent > 100)
     percent = 100;
 
-  snd_mixer_selem_set_playback_volume_all(aElem, (long) ROUND_POS((minPVolume + (maxPVolume - minPVolume) * percent / 100.0)));
+  long volume = (long) ROUND_POS((minVolume + (maxVolume - minVolume) * percent / 100.0));
+  if (capture)
+    snd_mixer_selem_set_capture_volume_all(aElem, volume);
+  else
+    snd_mixer_selem_set_playback_volume_all(aElem, volume);
 }
 
 
 // get max channel volume of all channels in this item in percent
 unsigned int AItem::getVolumePerc() {
-  long max_vol = 0, act_vol;
+  long max_vol = minVolume, act_vol;
 
   // find the max volume
   for (unsigned int i = 0; i < pbChannels.size(); i++)
@@ -62,8 +75,8 @@ unsigned int AItem::getVolumePerc() {
       max_vol = act_vol;
 
   // convert it into percent
-  if (minPVolume != maxPVolume)
-    return ((unsigned int) ROUND_POS((max_vol - minPVolume) * 100.0 / (maxPVolume - minPVolume)));
+  if (minVolume != maxVolume)
+    return ((unsigned int) ROUND_POS((max_vol - minVolume) * 100.0 / (maxVolume - minVolume)));
   else
     return (0);
 }
@@ -81,11 +94,17 @@ bool AItem::isMuted() {
 
 // mute all channels
 void AItem::mute() {
-  snd_mixer_selem_set_playback_switch_all(aElem, false);
+  if (capture)
+    snd_mixer_selem_set_capture_switch_all(aElem, false);
+  else
+    snd_mixer_selem_set_playback_switch_all(aElem, false);
 }
 
 
 // unmute all channels
 void AItem::unmute() {
-  snd_mixer_selem_set_playback_switch_all(aElem, true);
+  if (capture)
+    snd_mixer_selem_set_capture_switch_all(aElem, true);
+  else
+    snd_mixer_selem_set_playback_switch_all(aElem, true);
 }

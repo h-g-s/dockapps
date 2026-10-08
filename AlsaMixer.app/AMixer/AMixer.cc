@@ -118,6 +118,7 @@ AItem *AMixer::attachItem(unsigned int itemNumber, const char *itemName) {
   for (elem = snd_mixer_first_elem(mixerHandle); elem; elem = snd_mixer_elem_next(elem)) {
     if (snd_mixer_selem_is_active(elem) &&
 	snd_mixer_elem_get_type(elem) == SND_MIXER_ELEM_SIMPLE &&
+	AItem::hasVolume(elem) &&
 	std::strcmp(snd_mixer_selem_get_name(elem), itemName) == 0) {
       snd_mixer_elem_set_callback(elem, (snd_mixer_elem_callback_t) &itemCallback);
       return (mixerItems[itemNumber] = new AItem(this, elem));
@@ -125,6 +126,23 @@ AItem *AMixer::attachItem(unsigned int itemNumber, const char *itemName) {
   }
 
   return (NULL);
+}
+
+
+// names of active controls with a playback or capture volume, in mixer order
+std::vector<std::string> AMixer::volumeItemNames() {
+  std::vector<std::string> names;
+
+  if (!mixerHandle)
+    return names;
+  for (snd_mixer_elem_t *elem = snd_mixer_first_elem(mixerHandle); elem; elem = snd_mixer_elem_next(elem)) {
+    if (snd_mixer_selem_is_active(elem) &&
+	snd_mixer_elem_get_type(elem) == SND_MIXER_ELEM_SIMPLE &&
+	AItem::hasVolume(elem))
+      names.push_back(snd_mixer_selem_get_name(elem));
+  }
+
+  return names;
 }
 
 

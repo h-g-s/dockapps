@@ -21,19 +21,27 @@ AChannel::~AChannel() {
 long AChannel::getVolume() {
   long vol = 0;
 
-  snd_mixer_selem_get_playback_volume(aItem->aElem, (SNDCHID_T) id, &vol);
+  if (aItem->isCapture())
+    snd_mixer_selem_get_capture_volume(aItem->aElem, id, &vol);
+  else
+    snd_mixer_selem_get_playback_volume(aItem->aElem, id, &vol);
 
   return (vol);
 }
 
 
 bool AChannel::isMuted() {
-  int val;
+  int val = 1;
 
-  if (!snd_mixer_selem_has_playback_switch(aItem->aElem)) {
-	  return (false); /* can't be muted? isn't muted. */
+  if (aItem->isCapture()) {
+    if (!snd_mixer_selem_has_capture_switch(aItem->aElem))
+      return (false);
+    snd_mixer_selem_get_capture_switch(aItem->aElem, id, &val);
+  } else {
+    if (!snd_mixer_selem_has_playback_switch(aItem->aElem))
+      return (false); /* can't be muted? isn't muted. */
+    snd_mixer_selem_get_playback_switch(aItem->aElem, id, &val);
   }
-  snd_mixer_selem_get_playback_switch(aItem->aElem, (SNDCHID_T) id, &val);
 
-  return (! (bool) val);
+  return (!val);
 }
