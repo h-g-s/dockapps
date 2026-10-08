@@ -25,7 +25,6 @@ class AChannel {
     ~AChannel();				// dtor
 
     long getVolume();		// get channel volume
-    void setVolume(long value);	// set channel volume
     bool isMuted();		// return true, if channel is muted
 };
 

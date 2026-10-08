@@ -9,8 +9,9 @@
 
 #include <alsa/asoundlib.h>
 #include <iostream>
-#include <cstdio>
 #include <cstring>
+#include <cerrno>
+#include <string>
 
 static bool mixerChangeIndicator = false;
 static bool mixerReinitIndicator = false;
@@ -19,53 +20,59 @@ static int mixerCallback(snd_mixer_t *ctl, unsigned int mask,
 static int itemCallback(snd_mixer_elem_t *elem, unsigned int mask);
 
 
-AMixer::AMixer(const char *card) {
+AMixer::AMixer(const char *card)
+  : mixerHandle(NULL), mixerItems{}, cardName(card ? card : ""), itemNames{},
+    lastEventError(0) {
   int err;
 
-  if (card) {
-    cardName = new char[std::strlen(card)];
-    std::strcpy(cardName, card);
-    for (int i = 0; i < MIXER_ITEMS; i++)
-      mixerItems[i] = NULL;
+  if (!card)
+    return;
 
-    if ((err = snd_mixer_open(&mixerHandle, 0)) < 0) {
-      error("snd_mixer_open error", err);
-      mixerHandle = NULL;
+  if ((err = snd_mixer_open(&mixerHandle, 0)) < 0) {
+    error("snd_mixer_open error", err);
+    mixerHandle = NULL;
 
-      return;
-    }
-    if ((err = snd_mixer_attach(mixerHandle, card)) < 0) {
-      error("snd_mixer_attach error", err);
-      snd_mixer_close(mixerHandle);
-      mixerHandle = NULL;
-
-      return;
-    }
-    if ((err = snd_mixer_selem_register(mixerHandle, NULL, NULL)) < 0) {
-      error("snd_mixer_selem_register error", err);
-      snd_mixer_close(mixerHandle);
-      mixerHandle = NULL;
-
-      return;
-    }
-    if ((err = snd_mixer_load(mixerHandle)) < 0) {
-      error("snd_mixer_load error", err);
-      snd_mixer_close(mixerHandle);
-      mixerHandle = NULL;
-
-      return;
-    }
-
-    snd_mixer_set_callback(mixerHandle, (snd_mixer_callback_t) &mixerCallback);
+    return;
   }
+  if ((err = snd_mixer_attach(mixerHandle, card)) < 0) {
+    error("snd_mixer_attach error", err);
+    snd_mixer_free(mixerHandle);
+    snd_mixer_close(mixerHandle);
+    mixerHandle = NULL;
+
+    return;
+  }
+  if ((err = snd_mixer_selem_register(mixerHandle, NULL, NULL)) < 0) {
+    error("snd_mixer_selem_register error", err);
+    snd_mixer_detach(mixerHandle, cardName.c_str());
+    snd_mixer_free(mixerHandle);
+    snd_mixer_close(mixerHandle);
+    mixerHandle = NULL;
+
+    return;
+  }
+  if ((err = snd_mixer_load(mixerHandle)) < 0) {
+    error("snd_mixer_load error", err);
+    snd_mixer_detach(mixerHandle, cardName.c_str());
+    snd_mixer_free(mixerHandle);
+    snd_mixer_close(mixerHandle);
+    mixerHandle = NULL;
+
+    return;
+  }
+
+  snd_mixer_set_callback(mixerHandle, (snd_mixer_callback_t) &mixerCallback);
 }
 
 
 AMixer::~AMixer() {
+  for (int i = 0; i < MIXER_ITEMS; i++) {
+    delete mixerItems[i];
+    mixerItems[i] = NULL;
+  }
   if (mixerHandle) {
+    snd_mixer_detach(mixerHandle, cardName.c_str());
     snd_mixer_free(mixerHandle);
-    snd_mixer_detach(mixerHandle, cardName);
-    delete[] cardName;
     snd_mixer_close(mixerHandle);
   }
 }
@@ -81,8 +88,18 @@ void AMixer::error(const char *errorString, int errorCode) {
 }
 
 
-void AMixer::handleEvents() {
-  snd_mixer_handle_events(mixerHandle);
+int AMixer::handleEvents() {
+  if (!mixerHandle)
+    return -ENODEV;
+  int err = snd_mixer_handle_events(mixerHandle);
+  if (err < 0) {
+    if (err != lastEventError)
+      error("snd_mixer_handle_events error", err);
+    lastEventError = err;
+  } else {
+    lastEventError = 0;
+  }
+  return err;
 }
 
 
@@ -90,11 +107,11 @@ AItem *AMixer::attachItem(unsigned int itemNumber, const char *itemName) {
   if (itemNumber >= MIXER_ITEMS || !itemName)
     return (NULL);
 
-  // item was already created, so deregister callback and free it first
-  if (mixerItems[itemNumber]) {
-    snd_mixer_elem_set_callback(mixerItems[itemNumber]->aElem, NULL);
-    delete mixerItems[itemNumber];
-  }
+  itemNames[itemNumber] = itemName;
+  delete mixerItems[itemNumber];
+  mixerItems[itemNumber] = NULL;
+  if (!mixerHandle)
+    return (NULL);
 
   // try to find item by name, register callback, return success
   snd_mixer_elem_t *elem;
@@ -174,34 +191,33 @@ bool AMixer::mixerChanged() {
 
 // this function should be called after mixer callback, reInit all items
 void AMixer::reInit() {
-  for (int i = 0; i < MIXER_ITEMS; i++)
-    this->attachItem(i, mixerItems[i]->name);
+  for (int i = 0; i < MIXER_ITEMS; i++) {
+    if (!itemNames[i].empty()) {
+      const std::string itemName = itemNames[i];
+      this->attachItem(i, itemName.c_str());
+    }
+  }
 }
 
 
-int mixerCallback(snd_mixer_t *ctl, unsigned int mask,
-			  snd_mixer_elem_t *elem) {
+int mixerCallback(snd_mixer_t *, unsigned int, snd_mixer_elem_t *) {
   mixerReinitIndicator = true;
 
   return (0);
 }
 
 
-int itemCallback(snd_mixer_elem_t *elem, unsigned int mask) {
+int itemCallback(snd_mixer_elem_t *, unsigned int) {
   mixerChangeIndicator = true;
 
   return (0);
 }
 
 
-char* AMixer::convertIDToCard(const char* cardId) {
-  static char card[32] = "";
+std::string AMixer::convertIDToCard(const char* cardId) {
   int i = snd_card_get_index(cardId);
 
-  if (i >= 0 && i < 32)
-    std::snprintf(card, 32, "hw:%i", i);
-  else
-    return (NULL);
-
-  return (card);
+  if (i < 0)
+    return std::string();
+  return "hw:" + std::to_string(i);
 }

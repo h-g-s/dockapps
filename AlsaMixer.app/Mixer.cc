@@ -26,6 +26,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <csignal>
+#include <string>
+#include <unistd.h>
 #include "Xpm.h"
 #include "Mixer.h"
 
@@ -42,13 +44,11 @@ using namespace std;
 
 static const int ButtonX[] = {6, 24, 42};
 static const char* MixerSources[] = { "Master", "PCM", "CD" };
+static volatile sig_atomic_t shutdownRequested = 0;
 
-extern Mixer* app;
-
-void catchBrokenPipe(int sig)
+static void requestShutdown(int)
 {
-   app->saveVolumeSettings();
-   exit(0);
+   shutdownRequested = 1;
 }
 
 int positionToPercent(int position) {
@@ -60,29 +60,19 @@ int percentToPosition(int percent) {
 }
 
 Mixer::Mixer(int argc, char** argv)
+   : mDisplay(NULL), mRoot(None), mAppWin(None), mIconWin(None), mButton{},
+     mDeleteWindow(None), mMixerDevice("default"),
+     mInstanceName(INSTANCENAME), mLabelText(), mSettingsFile(), mCommand(),
+     mError(0), mVolume{}, mVolumePos{},
+     mVolumeMute{}, mWheelButton(1), mSaveSettings(false),
+     mLoadSettings(false), aMixer(NULL)
 {
    XClassHint classHint;
    XSizeHints sizeHints;
    XWMHints   wmHints;
-   Atom       deleteWindow;
    Xpm*       image;
    char*      displayName = NULL;
-   char*      card = "default";
-
-   mError = 0;
-   mInstanceName = INSTANCENAME;
-   mVolumeSource[0] = -1;
-   mVolumeSource[1] = -1;
-   mVolumeSource[2] = -1;
-   mVolumeMute[0] = 0;
-   mVolumeMute[1] = 0;
-   mVolumeMute[2] = 0;
-   mWheelButton = 1;
-   mLabelText = 0;
-   mSettingsFile = 0;
-   mSaveSettings = false;
-   mLoadSettings = false;
-   mCommand = NULL;
+   string card = "default";
 
    // Parse command line
    if (argc>1) {
@@ -109,7 +99,7 @@ Mixer::Mixer(int argc, char** argv)
             if (mWheelButton < 1 || mWheelButton > 3) {
                cerr << APPNAME << ": invalid wheel binding, must be 1, 2 or 3, not " << argv[i+1] << endl;
                tryHelp(argv[0]);
-               exit(0);
+               exit(EXIT_FAILURE);
             }
 
             i++;
@@ -167,18 +157,21 @@ Mixer::Mixer(int argc, char** argv)
 
 	 // card
 	 else if (!strcmp(argv[i], "--card")) {
+	   checkArgument(argv, argc, i);
 	   card = AMixer::convertIDToCard(argv[i + 1]);
-	   if (!card) {
+	   if (card.empty()) {
 	     cerr << APPNAME << ": invalid card number '" << argv[i + 1] << "'" << endl;
 	     tryHelp(argv[0]);
-	     exit(0);
+	     exit(EXIT_FAILURE);
 	   }
 	   i++;
 	 }
 
 	 // device
 	 else if (!strcmp(argv[i], "--device")) {
+	   checkArgument(argv, argc, i);
 	   card = argv[i + 1];
+	   mMixerDevice = card;
 	   i++;
 	 }
 
@@ -186,28 +179,27 @@ Mixer::Mixer(int argc, char** argv)
          else {
             cerr << APPNAME << ": invalid option '" << argv[i] << "'" << endl;
             tryHelp(argv[0]);
-            exit(0);
+            exit(EXIT_FAILURE);
          }
       }
    }
 
    // default settings file
-   if (!mSettingsFile) {
+   if (mSettingsFile.empty()) {
      char* home = getenv("HOME");
      if (home) {
-       mSettingsFile = new char[strlen(home) + strlen(SETTINGS) + 1];
-       strcpy(mSettingsFile, home);
-       strcat(mSettingsFile, SETTINGS);
+       mSettingsFile = string(home) + SETTINGS;
      } else {
        cerr << APPNAME << ": $HOME not set, could not find saved settings" << endl;
      }
    }
 
    // init mixer
-   aMixer = new AMixer(card);
+   mMixerDevice = card;
+   aMixer = new AMixer(card.c_str());
    if (!aMixer->opened()) {
      cerr << APPNAME << ": could not open mixer device for card '" << card << "'" << endl;
-     exit(0);
+     exit(EXIT_FAILURE);
    }
 
    // open mixer sources
@@ -220,7 +212,7 @@ Mixer::Mixer(int argc, char** argv)
    // Open display
    if ((mDisplay = XOpenDisplay(displayName)) == NULL) {
       cerr << APPNAME << ": could not open display " << displayName << endl;
-      exit(0);
+      exit(EXIT_FAILURE);
    }
 
    // Get root window
@@ -231,14 +223,14 @@ Mixer::Mixer(int argc, char** argv)
    mIconWin = XCreateSimpleWindow(mDisplay, mAppWin, 0, 0, 64, 64, 0, 0, 0);
 
    // Set classhint
-   classHint.res_name =  mInstanceName;
-   classHint.res_class = CLASSNAME;
+   classHint.res_name = const_cast<char*>(mInstanceName.c_str());
+   classHint.res_class = const_cast<char*>(CLASSNAME);
    XSetClassHint(mDisplay, mAppWin, &classHint);
 
    // Create delete atom
-   deleteWindow = XInternAtom(mDisplay, "WM_DELETE_WINDOW", False);
-   XSetWMProtocols(mDisplay, mAppWin, &deleteWindow, 1);
-   XSetWMProtocols(mDisplay, mIconWin, &deleteWindow, 1);
+   mDeleteWindow = XInternAtom(mDisplay, "WM_DELETE_WINDOW", False);
+   XSetWMProtocols(mDisplay, mAppWin, &mDeleteWindow, 1);
+   XSetWMProtocols(mDisplay, mIconWin, &mDeleteWindow, 1);
 
    // Set windowname
    XStoreName(mDisplay, mAppWin, APPNAME);
@@ -264,8 +256,8 @@ Mixer::Mixer(int argc, char** argv)
 
    // Set background image
    image = new Xpm(mDisplay, mRoot, main_xpm);
-   if (mLabelText) {
-      image->drawString(LABEL_X, LABEL_Y, mLabelText);
+   if (!mLabelText.empty()) {
+      image->drawString(LABEL_X, LABEL_Y, mLabelText.c_str());
    }
    image->setWindowPixmapShaped(mIconWin);
    delete image;
@@ -294,8 +286,10 @@ Mixer::Mixer(int argc, char** argv)
    XMapWindow(mDisplay, mAppWin);
    XSync(mDisplay, False);
 
-   // Catch broker pipe signal
-   signal(SIGPIPE, catchBrokenPipe);
+   shutdownRequested = 0;
+   signal(SIGPIPE, requestShutdown);
+   signal(SIGINT, requestShutdown);
+   signal(SIGTERM, requestShutdown);
 
    // Check if error
    if (mError) {
@@ -307,7 +301,15 @@ Mixer::Mixer(int argc, char** argv)
    }
 }
 
-void Mixer::tryHelp(char* appname)
+Mixer::~Mixer()
+{
+   saveVolumeSettings();
+   delete aMixer;
+   if (mDisplay)
+      XCloseDisplay(mDisplay);
+}
+
+void Mixer::tryHelp(const char* appname)
 {
    cerr << "Try `" << appname << " --help' for more information" << endl;
 }
@@ -335,10 +337,10 @@ void Mixer::showHelp()
 
 void Mixer::checkArgument(char** argv, int argc, int index)
 {
-   if (argc-1 < index+1) {
+   if (index + 1 >= argc) {
       cerr << APPNAME << ": option '" << argv[index] << "' requires an argument" << endl;
       tryHelp(argv[0]);
-      exit(0);
+      exit(EXIT_FAILURE);
    }
 }
 
@@ -361,47 +363,55 @@ void Mixer::showErrorLed()
 
 void Mixer::loadVolumeSettings()
 {
-   if (mSettingsFile) {
-      ifstream file(mSettingsFile);
-      if (file) {
-         // This could fail if the user has edited the file by hand and destroyed the structure
-         char dummy[1024];
-         file >> dummy; // {
-         file >> dummy; // Volume1
-         file >> dummy; // =
-         file >> mVolume[0];
-         file >> dummy; // ;
+   if (mSettingsFile.empty())
+      return;
 
-         file >> dummy; // Volume2
-         file >> dummy; // =
-         file >> mVolume[1];
-         file >> dummy; // ;
+   ifstream file(mSettingsFile);
+   if (!file)
+      return;
 
-         file >> dummy; // Volume3
-         file >> dummy; // =
-         file >> mVolume[2];
+   int volumes[3];
+   string token;
+   bool valid = static_cast<bool>(file >> token) && token == "{";
+   for (int i = 0; valid && i < 3; i++) {
+      const string key = "Volume" + to_string(i + 1);
+      valid = static_cast<bool>(file >> token) && token == key &&
+              static_cast<bool>(file >> token) && token == "=" &&
+              static_cast<bool>(file >> volumes[i]) &&
+              static_cast<bool>(file >> token) && token == ";";
+      if (valid && (volumes[i] < 0 || volumes[i] > 100))
+         valid = false;
+   }
+   valid = valid && static_cast<bool>(file >> token) && token == "}";
+   if (!valid) {
+      cerr << APPNAME << ": invalid volume settings in " << mSettingsFile << endl;
+      return;
+   }
 
-         file.close();
-	 for (int i = 0; i < 3; i++) {
-	   setVolume(i, mVolume[i]);
-	   setButtonPosition(i, percentToPosition(mVolume[i]));
-	 }
-      }
+   for (int i = 0; i < 3; i++) {
+      setVolume(i, volumes[i]);
+      setButtonPosition(i, percentToPosition(volumes[i]));
    }
 }
 
 void Mixer::saveVolumeSettings()
 {
    if (mSaveSettings) {
+      if (mSettingsFile.empty()) {
+         cerr << APPNAME << ": cannot save volume settings without a settings file" << endl;
+         return;
+      }
       ofstream file(mSettingsFile);
       if (file) {
          // Files in ~/GNUstep/Defaults/ should follow the property list format
          file << "{" << endl
-              << "  Volume1 = " << mVolumePos[0] << ";" << endl
-              << "  Volume2 = " << mVolumePos[1] << ";" << endl
-              << "  Volume3 = " << mVolumePos[2] << ";" << endl
+              << "  Volume1 = " << mVolume[0] << ";" << endl
+              << "  Volume2 = " << mVolume[1] << ";" << endl
+              << "  Volume3 = " << mVolume[2] << ";" << endl
               << "}" << endl;
          file.close();
+         if (!file)
+            cerr << APPNAME << ": failed to save volume settings in " << mSettingsFile << endl;
       } else {
          cerr << APPNAME << ": failed to save volume settings in " << mSettingsFile << endl;
       }
@@ -421,6 +431,10 @@ void Mixer::getVolume()
    for (int i=0; i<3; i++) {
       mVolume[i] = aMixer->itemGetVolume(i);
       mVolumeMute[i] = aMixer->itemIsMuted(i);
+      if (mVolume[i] < 0) {
+         mVolume[i] = 0;
+         mVolumeMute[i] = 0;
+      }
 
       if (lastVolume[i] != mVolume[i]) {
          int y;
@@ -465,6 +479,8 @@ void Mixer::setVolume(int button, int volume)
 
 void Mixer::toggleMute(int button)
 {
+  if (!aMixer->itemOK(button))
+    return;
   aMixer->itemToggleMute(button);
   mVolumeMute[button] = aMixer->itemIsMuted(button);
   setButtonType(button);
@@ -530,11 +546,16 @@ void Mixer::run()
    int    buttonDownPosition = 0;
 
    // Start handling events
-   while(1) {
-      while(XPending(mDisplay) || buttonDown) {
+   while(!shutdownRequested) {
+      while(XPending(mDisplay) && !shutdownRequested) {
          XNextEvent(mDisplay, &event);
 
          switch(event.type) {
+         case ClientMessage:
+            if (static_cast<Atom>(event.xclient.data.l[0]) == mDeleteWindow)
+               shutdownRequested = 1;
+            break;
+
          case ButtonPress:
             if (event.xbutton.button == Button4 || event.xbutton.button == Button5) {
                // Wheel scroll
@@ -553,11 +574,8 @@ void Mixer::run()
                }
             } else if (event.xbutton.button == Button2) {
 	       // Load defaults or execute command
-	       if (mCommand) {
-		 char command[512];
-
-		 snprintf(command, 512, "%s &", mCommand);
-		 system(command);
+	       if (!mCommand.empty()) {
+		 system((mCommand + " &").c_str());
 	       }
 	       else
 		 loadVolumeSettings();
@@ -584,16 +602,20 @@ void Mixer::run()
          }
       }
 
+      if (shutdownRequested)
+         break;
+
       // Idle for a moment
       usleep(100000);
 
       // Update volume status
       aMixer->handleEvents();
-      if (AMixer::mixerChanged())
+      if (AMixer::mixerChanged()) {
 	aMixer->reInit();
-      else if (AMixer::mixerElemsChanged())
 	getVolume();
+      } else if (AMixer::mixerElemsChanged()) {
+	getVolume();
+      }
       XSync(mDisplay, False);
    }
 }
-

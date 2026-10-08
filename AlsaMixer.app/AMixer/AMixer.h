@@ -10,6 +10,7 @@
 #include "AItem.h"
 
 #include <alsa/asoundlib.h>
+#include <string>
 
 #define MIXER_ITEMS	3
 
@@ -20,7 +21,9 @@ class AMixer {
   private:
     snd_mixer_t *mixerHandle;
     AItem *mixerItems[MIXER_ITEMS];
-    char *cardName;
+    std::string cardName;
+    std::string itemNames[MIXER_ITEMS];
+    int lastEventError;
 
     void error(const char *errorString, int errorCode);
 
@@ -29,7 +32,7 @@ class AMixer {
     ~AMixer();				// dtor
 
     bool opened();
-    void handleEvents();
+    int handleEvents();
     AItem *attachItem(unsigned int itemNumber, const char *itemName);
     bool itemOK(unsigned int itemNumber);
     int itemGetVolume(unsigned int itemNumber);
@@ -40,7 +43,7 @@ class AMixer {
 
     static bool mixerElemsChanged();
     static bool mixerChanged();
-    static char* convertIDToCard(const char* cardId);
+    static std::string convertIDToCard(const char* cardId);
 };
 
 #endif

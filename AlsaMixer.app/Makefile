@@ -6,34 +6,51 @@
 #
 # SPDX-License-Identifier: GPL-2.0+
 
-DESTDIR =
-GNUSTEP_BINDIR = /usr/local/GNUstep/Apps/AlsaMixer.app
-X11_BINDIR = /usr/X11R6/bin
+PREFIX ?= /usr/local
+DESTDIR ?=
+bindir ?= $(PREFIX)/bin
+GNUSTEP_BINDIR ?= $(PREFIX)/GNUstep/Apps/AlsaMixer.app
 
-CXX=c++
-CXXFLAGS += -Wall -pedantic -fno-rtti -fno-exceptions -O2 -I/usr/X11R6/include
-LDFLAGS += -L/usr/X11R6/lib -lXpm -lXext -lX11 -lasound
+CXX ?= c++
+PKG_CONFIG ?= pkg-config
+PKG_PACKAGES = x11 xext xpm alsa
+
+CPPFLAGS += $(shell $(PKG_CONFIG) --cflags $(PKG_PACKAGES) 2>/dev/null)
+CXXFLAGS += -std=c++17 -Wall -Wextra -Wpedantic
+LDLIBS += $(shell $(PKG_CONFIG) --libs $(PKG_PACKAGES) 2>/dev/null)
 
 OBJECTS = Main.o Mixer.o Xpm.o AMixer/AMixer.o AMixer/AItem.o AMixer/AChannel.o
+DEPFILES = $(OBJECTS:.o=.d)
 
-all: AlsaMixer.app
+.PHONY: all check-deps install install-gnustep clean distclean
+
+all: check-deps AlsaMixer.app
+
+check-deps:
+	@$(PKG_CONFIG) --exists $(PKG_PACKAGES) || { \
+		echo "Missing development packages; install pkg-config metadata for: $(PKG_PACKAGES)" >&2; \
+		exit 1; \
+	}
 
 AlsaMixer.app: $(OBJECTS)
-	$(CXX) $(OBJECTS) -o $@ $(LDFLAGS)
+	$(CXX) $(LDFLAGS) $(OBJECTS) -o $@ $(LDLIBS)
 
-.PHONY:	install clean distclean
+%.o: %.cc
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c -o $@ $<
 
-install: install-gnustep
+-include $(DEPFILES)
+
+install: all
+	install -d $(DESTDIR)$(bindir)
+	install -m 0755 AlsaMixer.app $(DESTDIR)$(bindir)/AlsaMixer.app
 
 install-gnustep: all
 	install -d  $(DESTDIR)$(GNUSTEP_BINDIR)
 	install -m 0755 AlsaMixer.app $(DESTDIR)$(GNUSTEP_BINDIR)/AlsaMixer
 
-install-x11: all
-	install -d  $(DESTDIR)$(X11_BINDIR)
-	install -m 0755 AlsaMixer.app $(DESTDIR)$(X11_BINDIR)/AlsaMixer.app
-
 clean:
-	rm -f *~ $(OBJECTS) AlsaMixer.app
+	rm -f *~ $(OBJECTS) $(DEPFILES) AlsaMixer.app
+
+distclean: clean
 
 # End of file

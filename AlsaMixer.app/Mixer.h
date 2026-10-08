@@ -26,6 +26,7 @@
 #include "AMixer/AMixer.h"
 
 #include <X11/Xlib.h>
+#include <string>
 
 #define APPNAME		"AlsaMixer.app"
 #define VERSION		"1.8.0"
@@ -47,16 +48,15 @@ class Mixer
 {
 public:
    Mixer(int argc, char** argv);
-   ~Mixer() {};
+   ~Mixer();
    void run();
    void saveVolumeSettings();
 
 private:
-   void tryHelp(char* appname);
+   void tryHelp(const char* appname);
    void showHelp();
    void checkArgument(char** argv, int argc, int index);
    void showErrorLed();
-   void findMixerDevice();
    void getVolume();
    void setVolume(int button, int volume);
    void toggleMute(int button);
@@ -70,13 +70,13 @@ private:
    Window   mAppWin;
    Window   mIconWin;
    Window   mButton[3];
-   char*    mMixerDevice;
-   char*    mInstanceName;
-   char*    mLabelText;
-   char*    mSettingsFile;
-   char*    mCommand;
+   Atom     mDeleteWindow;
+   std::string mMixerDevice;
+   std::string mInstanceName;
+   std::string mLabelText;
+   std::string mSettingsFile;
+   std::string mCommand;
    int      mError;
-   int      mVolumeSource[3];
    int      mVolume[3];
    int      mVolumePos[3];
    int      mVolumeMute[3];

@@ -22,11 +22,9 @@
 
 #include "Mixer.h"
 
-Mixer* app;
-
 int main(int argc, char** argv)
 {
-   app = new Mixer(argc, argv);
-   app->run();
+   Mixer app(argc, argv);
+   app.run();
    return 0;
 }

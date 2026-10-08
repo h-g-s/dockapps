@@ -1,0 +1,41 @@
+wmsystemtray
+============
+
+wmsystemtray is a freedesktop.org system tray for Window Maker. It supports
+multiple dock windows and paging when more icons are active than can fit.
+This source is version 1.4, written by Brad Jorsch and released under the
+GNU General Public License, version 2 or later; see COPYING.
+
+Build dependencies
+------------------
+
+- Meson 0.60 or newer and Ninja
+- A C compiler and pkg-config
+- X11, Xext, Xfixes, and Xpm development libraries
+
+On Fedora, install the dependencies with:
+
+    sudo dnf install gcc meson ninja-build pkgconf-pkg-config \
+        libX11-devel libXext-devel libXfixes-devel libXpm-devel
+
+Build and install
+-----------------
+
+From this directory:
+
+    meson setup build
+    meson compile -C build
+    sudo meson install -C build
+
+The executable is installed under the selected bindir (normally
+/usr/local/bin), and the manual page is installed under the selected mandir.
+To stage an install for packaging:
+
+    meson setup build --prefix=/usr
+    DESTDIR=/tmp/package-root meson install -C build
+
+Run `wmsystemtray --help` for command-line options. See wmsystemtray(1) for
+the complete usage documentation.
+
+Meson is the maintained build system for this fork; the obsolete Autotools
+build infrastructure from the original archive is not retained.

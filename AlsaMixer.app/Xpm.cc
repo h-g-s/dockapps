@@ -25,19 +25,30 @@
 #include <iostream>
 #include <cstdlib>
 #include <cstring>
+#include <string>
+#include <vector>
 #include "Mixer.h"
 #include "Xpm.h"
 
 using namespace std;
 
-Xpm::Xpm(Display* display, Window root, char** data)
+Xpm::Xpm(Display* display, Window root, const char* const* data)
+   : mDisplay(display), mImage(None), mMask(None)
 {
    int error;
+   vector<string> mutableRows;
+   vector<char*> mutableData;
 
-   mDisplay = display;
+   for (int i = 0; data[i]; i++)
+      mutableRows.emplace_back(data[i]);
+   mutableData.reserve(mutableRows.size() + 1);
+   for (string& row : mutableRows)
+      mutableData.push_back(row.data());
+   mutableData.push_back(NULL);
 
    mAttributes.valuemask = 0;
-   error = XpmCreatePixmapFromData(mDisplay, root, data, &mImage, &mMask, &mAttributes);
+   error = XpmCreatePixmapFromData(mDisplay, root, mutableData.data(),
+                                   &mImage, &mMask, &mAttributes);
 
    switch (error) {
    case XpmColorError:
@@ -46,18 +57,18 @@ Xpm::Xpm(Display* display, Window root, char** data)
 
    case XpmColorFailed:
       cerr << APPNAME << ": could not load xpm image (not enough colors available)" << endl;
-      exit(0);
+      exit(EXIT_FAILURE);
       break;
 
    case XpmNoMemory:
       cerr << APPNAME << ": could not load xpm image (not enough memory available)" << endl;
-      exit(0);
+      exit(EXIT_FAILURE);
       break;
 
    case XpmOpenFailed:
    case XpmFileInvalid:
       cerr << APPNAME << ": could not load xpm image (image broken or corrupt)" << endl;
-      exit(0);
+      exit(EXIT_FAILURE);
       break;
 
    case XpmSuccess:
@@ -91,7 +102,7 @@ void Xpm::setWindowPixmapShaped(Window win)
    XShapeCombineMask(mDisplay, win, ShapeBounding, 0, 0, mMask, ShapeSet);
 }
 
-void Xpm::drawString(int x, int y, char* text)
+void Xpm::drawString(int x, int y, const char* text)
 {
    Font      font;
    GC        gc;

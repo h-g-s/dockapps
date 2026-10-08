@@ -1,0 +1,66 @@
+wmforkplop
+==========
+
+wmforkplop is a Window Maker dockapp that visualizes process creation and
+termination, lists CPU-consuming processes, and provides a process browser.
+It is based on wmhdplop and wmtop. The included source archive was
+wmforkplop 0.9.3, released by Julien Pommier in 2006.
+
+This fork keeps the dockapp's original purpose and interface while updating
+its build and compatibility for current Linux distributions. The original
+GPL-2.0 license is in COPYING. The bundled Bitstream Vera font is separately
+licensed; its terms are in Vera.txt.
+
+Fork build and portability updates were made on 2026-10-08.
+
+Build dependencies
+------------------
+
+- Meson 0.60 or newer and Ninja
+- A C compiler
+- pkg-config
+- GLib 2, libgtop 2.7.90 or newer, Imlib2, X11, and Xext development
+  packages
+
+On Fedora, the dependencies are provided by `meson`, `ninja-build`,
+`pkgconf-pkg-config`, `glib2-devel`, `libgtop2-devel`, `imlib2-devel`,
+`libX11-devel`, and `libXext-devel`.
+
+Build and install
+-----------------
+
+From this directory:
+
+    meson setup build
+    meson compile -C build
+    meson install -C build
+
+There is no automated test suite yet. Meson installs `wmforkplop` under the
+selected `bindir` (normally `/usr/local/bin`) and its font and README under
+the selected data directory.
+
+Use a system prefix when packaging:
+
+    meson setup build --prefix=/usr
+    DESTDIR=/tmp/package-root meson install -C build
+
+Run `wmforkplop --help` for the available options. The optional GKrellM
+plugin from the original source distribution is not built; upstream marked
+it broken, and it depends on the obsolete GTK 2/GKrellM 2 interfaces.
+
+Usage
+-----
+
+- Click a listed process to inspect it; use the mouse wheel or drag to browse.
+- Click the process name to show process actions. The panel can send SIGTERM
+  or SIGKILL to that process, or SIGTERM to processes with the same name.
+- Use `--32`, `--48`, or `--56` for smaller docks, or `-g` to run in a
+  resizable window.
+- `--no-top` disables the process list and `--no-fork` disables the fork
+  animation. `--proc-update-interval` controls how often process statistics
+  are sampled.
+
+Upstream source
+--------------
+
+<http://hules.free.fr/wmforkplop/wmforkplop-0.9.3.tar.gz>

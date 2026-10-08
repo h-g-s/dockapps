@@ -1,33 +1,31 @@
-Installation instructions for AlsaMixer.app
-
+AlsaMixer.app build and installation
 
 Requirements
 -------------------------------------------------------------------
-- X11, libxpm (devel version of both), C++ development environment
-        Most (Linux) systems have these things installed by default.
-        If you don't have it look for packages that fit your
-        distribution (especially somelib-devel packages).
+- C++17 compiler and make
+- pkg-config
+- X11, Xext, Xpm, and ALSA development libraries
 
-
-Installation
+Build
 -------------------------------------------------------------------
-1) make
-2) su
-3) make install       (to put it in /usr/local/GNUstep/Apps/AlsaMixer.app)
-   or
-   make install-x11   (to put it in /usr/X11R6/bin)
-5) exit
+From this directory, run:
 
+    make
 
-Running
+Install
 -------------------------------------------------------------------
-To run this program:
-/usr/local/GNUstep/Apps/AlsaMixer.app/AlsaMixer &
-or
-/usr/X11R6/bin/AlsaMixer.app &
+The default installation places AlsaMixer.app in /usr/local/bin, which is
+normally on PATH:
 
+    sudo make install
 
-For more information about available command line arguments:
-/usr/local/GNUstep/Apps/Mixer.app/AlsaMixer --help
-or
-/usr/X11R6/bin/AlsaMixer.app --help
+Set PREFIX to select a different installation prefix:
+
+    make PREFIX=/usr install
+
+For packaging, DESTDIR stages the installation without changing its final
+paths:
+
+    make DESTDIR=/tmp/package-root PREFIX=/usr install
+
+Run AlsaMixer.app --help for command-line options.

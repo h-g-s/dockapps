@@ -28,11 +28,11 @@
 class Xpm
 {
 public:
-   Xpm(Display* display, Window root, char** data);
-   virtual ~Xpm();
+   Xpm(Display* display, Window root, const char* const* data);
+   ~Xpm();
    void setWindowPixmap(Window win);
    void setWindowPixmapShaped(Window win);
-   void drawString(int x, int y, char* text);
+   void drawString(int x, int y, const char* text);
 
 private:
    Display*      mDisplay;
