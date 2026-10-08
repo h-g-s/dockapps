@@ -64,6 +64,8 @@ private:
    void setButtonPosition(int button, int position);
    void setButtonPositionRelative(int button, int relativePosition);
    void loadVolumeSettings();
+   void selectSources(bool reportErrors);
+   void reopenMixerIfIncomplete();
 
    Display* mDisplay;
    Window   mRoot;

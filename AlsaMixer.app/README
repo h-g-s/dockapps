@@ -7,7 +7,9 @@ the default sources are 'Master', 'PCM' and 'CD' volume. If a default source
 does not exist (for example with PipeWire or PulseAudio, whose ALSA 'default'
 device only provides 'Master' and 'Capture'), another available playback or
 capture control is used instead, and controllers left without a control are
-hidden. Sources given with -1, -2 or -3 are never replaced. Sound sources can
+hidden. If controls are missing at start-up (for example when the dock starts
+before PipeWire has a default microphone), the mixer is reopened periodically
+until they appear. Sources given with -1, -2 or -3 are never replaced. Sound sources can
 be easily muted and there is also wheel mouse support.
 The whole GUI and command parsing was taken from Mixer.app (see old doc
 for URL's), only connection to ALSA driver was added.

@@ -44,6 +44,7 @@
 using namespace std;
 
 static const int ButtonX[] = {6, 24, 42};
+static const char* DefaultMixerSources[] = { "Master", "PCM", "CD" };
 static std::string MixerSources[] = { "Master", "PCM", "CD" };
 static bool MixerSourceSet[] = { false, false, false };
 static volatile sig_atomic_t shutdownRequested = 0;
@@ -205,30 +206,7 @@ Mixer::Mixer(int argc, char** argv)
      exit(EXIT_FAILURE);
    }
 
-   // open mixer sources
-   for (int i = 0; i < 3; i++) {
-     aMixer->attachItem(i, MixerSources[i].c_str());
-     if (!aMixer->itemOK(i) && MixerSourceSet[i])
-       cerr << APPNAME << ": could not select mixer source '" << MixerSources[i] << "'" << endl;
-   }
-
-   // Replace missing default sources (e.g. no PCM/CD on PipeWire or
-   // PulseAudio) with other available controls; unused controls are hidden
-   const vector<string> available = aMixer->volumeItemNames();
-   for (int i = 0; i < 3; i++) {
-     if (aMixer->itemOK(i) || MixerSourceSet[i])
-       continue;
-     for (const string& name : available) {
-       bool used = false;
-       for (int j = 0; j < 3; j++)
-         used = used || (aMixer->itemOK(j) && MixerSources[j] == name);
-       if (!used) {
-         MixerSources[i] = name;
-         aMixer->attachItem(i, name.c_str());
-         break;
-       }
-     }
-   }
+   selectSources(true);
    if (!aMixer->itemOK(0) && !aMixer->itemOK(1) && !aMixer->itemOK(2))
      cerr << APPNAME << ": no usable mixer controls found on '" << card << "'" << endl;
 
@@ -331,6 +309,67 @@ Mixer::~Mixer()
    delete aMixer;
    if (mDisplay)
       XCloseDisplay(mDisplay);
+}
+
+// Attach configured sources; replace missing default sources with other
+// available controls (e.g. 'Capture' on PipeWire/PulseAudio)
+void Mixer::selectSources(bool reportErrors)
+{
+   for (int i = 0; i < 3; i++) {
+     if (!MixerSourceSet[i])
+       MixerSources[i] = DefaultMixerSources[i];
+     aMixer->attachItem(i, MixerSources[i].c_str());
+     if (reportErrors && !aMixer->itemOK(i) && MixerSourceSet[i])
+       cerr << APPNAME << ": could not select mixer source '" << MixerSources[i] << "'" << endl;
+   }
+
+   const vector<string> available = aMixer->volumeItemNames();
+   for (int i = 0; i < 3; i++) {
+     if (aMixer->itemOK(i) || MixerSourceSet[i])
+       continue;
+     for (const string& name : available) {
+       bool used = false;
+       for (int j = 0; j < 3; j++)
+         used = used || (aMixer->itemOK(j) && MixerSources[j] == name);
+       if (!used) {
+         MixerSources[i] = name;
+         aMixer->attachItem(i, name.c_str());
+         break;
+       }
+     }
+   }
+}
+
+// ALSA plugins such as pulse fix their controls when opened, so controls that
+// appear later (e.g. a microphone once PipeWire is ready) need a reopen
+void Mixer::reopenMixerIfIncomplete()
+{
+   // retry after 3 s, backing off to once a minute (loop ticks are 100 ms)
+   static int idleTicks = 0;
+   static int retryTicks = 30;
+   bool missing = false;
+
+   for (int i = 0; i < 3; i++)
+     missing = missing || !aMixer->itemOK(i);
+   if (!missing || ++idleTicks < retryTicks)
+     return;
+   idleTicks = 0;
+   if (retryTicks < 600)
+     retryTicks *= 2;
+
+   AMixer* mixer = new AMixer(mMixerDevice.c_str());
+   if (!mixer->opened()) {
+     delete mixer;
+     return;
+   }
+   if (mixer->volumeItemNames().size() <= aMixer->volumeItemNames().size()) {
+     delete mixer;
+     return;
+   }
+   delete aMixer;
+   aMixer = mixer;
+   selectSources(false);
+   getVolume();
 }
 
 void Mixer::tryHelp(const char* appname)
@@ -655,6 +694,7 @@ void Mixer::run()
       } else if (AMixer::mixerElemsChanged()) {
 	getVolume();
       }
+      reopenMixerIfIncomplete();
       XSync(mDisplay, False);
    }
 }
